@@ -1,25 +1,24 @@
-# Virtual machine with default linux directories
-FROM --platform=$BUILDPLATFORM oven/bun:1.2.17-alpine
-
-# cd /app
+FROM oven/bun:canary-alpine AS deps
 WORKDIR /app
-
-# Copy app files to ./app - We are using WORKDIR so we can use ./ instead of /app
 COPY package.json .
-
 RUN bun install
 
+FROM oven/bun:canary-alpine AS testbuilder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
 RUN bun run test
+RUN rm -rf tests && rm -rf node_modules
+# If we are creating a docker image for a project like React, Nest, Next, Astro, etc. We need to define a builder command like `RUN bun run build`
 
-RUN rm -rf tests
-
-# Remove all node_modules, we do not need jest or any other dev dependencies in production. We just need the essential files to build the image.
-RUN rm -rf node_modules
-
-# Install only production dependencies (essential dependencies to run the image)
+FROM oven/bun:canary-alpine AS prod-deps
+WORKDIR /app
+COPY --from=testbuilder /app/package.json .
 RUN bun install --prod
 
-# Command to run the app
+FROM oven/bun:canary-alpine AS runner
+WORKDIR /app
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY index.ts .
+COPY tasks/ ./tasks
 CMD ["bun", "index.ts"]
